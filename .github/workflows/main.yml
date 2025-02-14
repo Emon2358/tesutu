@@ -1,104 +1,14 @@
-name: Fetch and Save Webpage
-on:
-  workflow_dispatch:
-    inputs:
-      target_url:
-        description: '取得対象のWebページのURL'
-        required: true
-        default: 'https://example.com'
-jobs:
-  fetch_page:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-        with:
-          persist-credentials: true
-          
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '16'
-          
-      - name: Install Puppeteer
-        run: |
-          npm init -y
-          npm install puppeteer
-          
-      - name: Create fetch script
-        run: |
-          cat <<'EOF' > fetch.js
-          const puppeteer = require('puppeteer');
-          
-          (async () => {
-            const browser = await puppeteer.launch({
-              args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-web-security',
-                '--disable-features=IsolateOrigins,site-per-process'
-              ]
-            });
-            
-            const page = await browser.newPage();
-            
-            // Set a more realistic user agent
-            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-            
-            // Enable JavaScript and cookies
-            await page.setJavaScriptEnabled(true);
-            
-            // Set extra HTTP headers
-            await page.setExtraHTTPHeaders({
-              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-              'Accept-Language': 'en-US,en;q=0.5',
-              'Connection': 'keep-alive',
-              'Upgrade-Insecure-Requests': '1',
-            });
-            
-            try {
-              // Navigate to the page with a longer timeout
-              await page.goto(process.env.TARGET_URL, {
-                waitUntil: 'networkidle2',
-                timeout: 30000
-              });
-              
-              // Wait for potential CloudFlare checks to pass
-              await page.waitForTimeout(5000);
-              
-              // Scroll to load any lazy-loaded content
-              await page.evaluate(() => {
-                window.scrollTo(0, document.body.scrollHeight);
-              });
-              
-              // Wait a bit more for any dynamic content
-              await page.waitForTimeout(2000);
-              
-              const content = await page.content();
-              const fs = require('fs');
-              fs.writeFileSync('output.html', content);
-              console.log('Page content saved successfully');
-              
-            } catch (error) {
-              console.error('Error fetching page:', error);
-              process.exit(1);
-            } finally {
-              await browser.close();
-            }
-          })();
-          EOF
-          
-      - name: Fetch page content
-        run: node fetch.js
-        env:
-          TARGET_URL: ${{ github.event.inputs.target_url }}
-          
-      - name: Commit and push output.html
-        run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "github-actions@github.com"
-          git add output.html
-          git commit -m "Update output.html from ${TARGET_URL}"
-          git push
-        env:
-          TARGET_URL: ${{ github.event.inputs.target_url }}
+name: Display Origin IP
+
+on: workflow_dispatch:
+jobs: get-ip: runs-on: ubuntu-latest steps: - name: 指定したサイトの確認 run: echo "対象サイト：${{ github.event.inputs.site }}"
+
+
+  - name: オリジンIPの取得（digコマンドを利用）
+    run: |
+      ip=$(dig +short ${{ github.event.inputs.site }})
+      if [ -z "$ip" ]; then
+        echo "IPの取得に失敗しました。"
+        exit 1
+      fi
+      echo "オリジンIP: $ip"
