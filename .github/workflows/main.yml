@@ -1,14 +1,24 @@
-name: Display Origin IP
+name: Get Origin IP
 
-on: workflow_dispatch:
-jobs: get-ip: runs-on: ubuntu-latest steps: - name: 指定したサイトの確認 run: echo "対象サイト：${{ github.event.inputs.site }}"
+on:
+  workflow_dispatch:  # 手動実行
 
+jobs:
+  find_origin_ip:
+    runs-on: ubuntu-latest
 
-  - name: オリジンIPの取得（digコマンドを利用）
-    run: |
-      ip=$(dig +short ${{ github.event.inputs.site }})
-      if [ -z "$ip" ]; then
-        echo "IPの取得に失敗しました。"
-        exit 1
-      fi
-      echo "オリジンIP: $ip"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get Origin IP
+        run: |
+          TARGET_DOMAIN="example.com"  # ここに対象のドメインを入力
+          ORIGIN_IP=$(dig +short "$TARGET_DOMAIN" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
+          
+          if [ -n "$ORIGIN_IP" ]; then
+            echo "Origin IP for $TARGET_DOMAIN: $ORIGIN_IP"
+          else
+            echo "No Origin IP found for $TARGET_DOMAIN"
+            exit 1
+          fi
