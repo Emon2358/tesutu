@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>a1</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background-color: #f2f2f2;
+    }
+    h1 {
+      color: #333;
+    }
+    form {
+      margin-bottom: 20px;
+    }
+    input[type="text"] {
+      width: 300px;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    input[type="checkbox"] {
+      margin-left: 10px;
+      vertical-align: middle;
+    }
+    label[for="dynamicCheckbox"] {
+      margin-left: 4px;
+      font-size: 0.9em;
+      vertical-align: middle;
+    }
+    button {
+      padding: 8px 12px;
+      border: none;
+      background-color: #007BFF;
+      color: white;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-left: 10px;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    #result {
+      background: white;
+      border: 1px solid #ccc;
+      padding: 10px;
+      border-radius: 4px;
+      max-height: 600px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>a1</h1>
+  <p>取得したいサイトのURLを入力してください:</p>
+  <form id="proxyForm">
+    <input type="text" id="urlInput" placeholder="https://example.com" required>
+    <input type="checkbox" id="dynamicCheckbox">
+    <label for="dynamicCheckbox">動的コンテンツとして取得する</label>
+    <button type="submit">取得</button>
+  </form>
+  <div id="result">ここに取得したコンテンツが表示されます。</div>
+
+  <script>
+    const resultDiv = document.getElementById('result');
+
+    /**
+     * 取得したHTML文字列をパースして、リンクや画像の相対パスを絶対パスに書き換え、
+     * 表示エリアに設定します。
+     * @param {string} html - 取得したHTML文字列
+     * @param {string} baseUrl - 基準となるURL（元のURL）
+     */
+    function processContent(html, baseUrl) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+
+      // --- リンク (<a>) の書き換え ---
+      const anchors = doc.querySelectorAll('a');
+      anchors.forEach(a => {
+        const href = a.getAttribute('href');
+        if (!href) return;
+        try {
+          // 絶対URLに変換
+          const absoluteUrl = new URL(href, baseUrl).href;
+          // data-url 属性に保持し、クリック時にプロキシ経由で取得する
+          a.setAttribute('data-url', absoluteUrl);
+          // 直接移動しないように href を "#" に設定
+          a.setAttribute('href', '#');
+        } catch (e) {
+          console.error('URL変換エラー:', e);
+        }
+      });
+
+      // --- 画像 (<img>) の書き換え ---
+      const images = doc.querySelectorAll('img');
+      images.forEach(img => {
+        const src = img.getAttribute('src');
+        if (!src) return;
+        try {
+          const absoluteSrc = new URL(src, baseUrl).href;
+          img.setAttribute('src', absoluteSrc);
+        } catch (e) {
+          console.error('画像URL変換エラー:', e);
+        }
+      });
+
+      // 表示エリアに取得したコンテンツの body 部分を挿入
+      resultDiv.innerHTML = doc.body.innerHTML;
+      // 入力欄も現在のURLに更新（ユーザー便宜のため）
+      document.getElementById('urlInput').value = baseUrl;
+    }
+
+    /**
+     * 指定した URL のページをプロキシ経由で取得します。
+     * 動的コンテンツとして取得するかどうかは、チェックボックスの状態で切り替えます。
+     * @param {string} url - 取得対象のURL
+     */
+    function fetchPage(url) {
+      resultDiv.innerHTML = '取得中...';
+      const isDynamic = document.getElementById('dynamicCheckbox').checked;
+      let apiUrl = '';
+
+      if (isDynamic) {
+        // Rendertron を利用（動的コンテンツ取得）
+        // ※ Rendertron は URL の前に "https://render-tron.appspot.com/render/" を付与するだけでレンダリング済みHTMLが返る
+        apiUrl = 'https://render-tron.appspot.com/render/' + encodeURIComponent(url);
+        fetch(apiUrl)
+          .then(response => {
+            if (!response.ok) {
+              throw new Error('レンダリング中にエラーが発生しました。');
+            }
+            return response.text();
+          })
+          .then(htmlContent => {
+            processContent(htmlContent, url);
+          })
+          .catch(error => {
+            resultDiv.innerHTML = 'エラー: ' + error.message;
+          });
+      } else {
+        // AllOrigins を利用（静的コンテンツ取得）
+        apiUrl = 'https://api.allorigins.hexocode.repl.co/get?disableCache=true&url=' + encodeURIComponent(url);
+        fetch(apiUrl)
+          .then(response => {
+            if (!response.ok) {
+              throw new Error('ネットワークエラーが発生しました。');
+            }
+            return response.json();
+          })
+          .then(data => {
+            processContent(data.contents, url);
+          })
+          .catch(error => {
+            resultDiv.innerHTML = 'エラー: ' + error.message;
+          });
+      }
+    }
+
+    // フォーム送信時の処理
+    document.getElementById('proxyForm').addEventListener('submit', function(event) {
+      event.preventDefault();
+      const url = document.getElementById('urlInput').value.trim();
+      if (!url) {
+        resultDiv.innerHTML = 'URLを入力してください。';
+        return;
+      }
+      fetchPage(url);
+    });
+
+    // 表示エリア内のリンククリック時、data-url 属性があればそのURLをプロキシ経由で再取得
+    resultDiv.addEventListener('click', function(event) {
+      let target = event.target;
+      while (target && target !== resultDiv) {
+        if (target.tagName === 'A' && target.dataset.url) {
+          event.preventDefault();
+          const newUrl = target.dataset.url;
+          fetchPage(newUrl);
+          return;
+        }
+        target = target.parentElement;
+      }
+    });
+  </script>
+</body>
+</html>
