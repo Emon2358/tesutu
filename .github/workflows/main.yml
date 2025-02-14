@@ -19,16 +19,21 @@ jobs:
 
       - name: Create Nginx config
         run: |
-          echo "server {" > nginx.conf
-          echo "    listen 80;" >> nginx.conf
-          echo "    server_name localhost;" >> nginx.conf
-          echo "    location / {" >> nginx.conf
-          echo "        proxy_pass ${TARGET_URL};" >> nginx.conf
-          echo "        proxy_set_header Host \$host;" >> nginx.conf
-          echo "        proxy_set_header X-Real-IP \$remote_addr;" >> nginx.conf
-          echo "        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;" >> nginx.conf
-          echo "    }" >> nginx.conf
-          echo "}" >> nginx.conf
+          cat <<'EOF' > nginx.conf
+          server {
+              listen 80;
+              server_name localhost;
+              location / {
+                  proxy_pass ${TARGET_URL};
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  # HTTPS対応のための設定
+                  proxy_ssl_server_name on;
+                  proxy_ssl_verify off;
+              }
+          }
+          EOF
         env:
           TARGET_URL: ${{ github.event.inputs.target_url }}
 
@@ -51,14 +56,14 @@ jobs:
 
       - name: Create fetch script
         run: |
-          cat << 'EOF' > fetch.js
+          cat <<'EOF' > fetch.js
           const puppeteer = require('puppeteer');
           (async () => {
             const browser = await puppeteer.launch({
               args: ['--no-sandbox', '--disable-setuid-sandbox']
             });
             const page = await browser.newPage();
-            // Nginxのリバースプロキシ経由でアクセス
+            // Nginxリバースプロキシ経由でアクセス
             await page.goto('http://localhost:8080', { waitUntil: 'networkidle2' });
             const content = await page.content();
             const fs = require('fs');
