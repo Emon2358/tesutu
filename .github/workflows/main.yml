@@ -1,0 +1,84 @@
+name: Fetch and Save Webpage
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: '取得対象のWebページのURL'
+        required: true
+        default: 'https://example.com'
+
+jobs:
+  fetch_page:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: true
+
+      - name: Create Nginx config
+        run: |
+          echo "server {" > nginx.conf
+          echo "    listen 80;" >> nginx.conf
+          echo "    server_name localhost;" >> nginx.conf
+          echo "    location / {" >> nginx.conf
+          echo "        proxy_pass ${TARGET_URL};" >> nginx.conf
+          echo "        proxy_set_header Host \$host;" >> nginx.conf
+          echo "        proxy_set_header X-Real-IP \$remote_addr;" >> nginx.conf
+          echo "        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;" >> nginx.conf
+          echo "    }" >> nginx.conf
+          echo "}" >> nginx.conf
+        env:
+          TARGET_URL: ${{ github.event.inputs.target_url }}
+
+      - name: Start Nginx reverse proxy
+        run: |
+          docker run -d --name nginx-proxy -p 8080:80 -v $PWD/nginx.conf:/etc/nginx/conf.d/default.conf:ro nginx:latest
+
+      - name: Wait for Nginx to be ready
+        run: sleep 5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+
+      - name: Install Puppeteer
+        run: |
+          npm init -y
+          npm install puppeteer
+
+      - name: Create fetch script
+        run: |
+          cat << 'EOF' > fetch.js
+          const puppeteer = require('puppeteer');
+          (async () => {
+            const browser = await puppeteer.launch({
+              args: ['--no-sandbox', '--disable-setuid-sandbox']
+            });
+            const page = await browser.newPage();
+            // Nginxのリバースプロキシ経由でアクセス
+            await page.goto('http://localhost:8080', { waitUntil: 'networkidle2' });
+            const content = await page.content();
+            const fs = require('fs');
+            fs.writeFileSync('output.html', content);
+            await browser.close();
+          })();
+          EOF
+
+      - name: Fetch page content via reverse proxy
+        run: node fetch.js
+
+      - name: Commit and push output.html
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git add output.html
+          git commit -m "Update output.html from ${TARGET_URL}"
+          git push
+        env:
+          TARGET_URL: ${{ github.event.inputs.target_url }}
+
+      - name: Stop Nginx container
+        run: docker rm -f nginx-proxy
